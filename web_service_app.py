@@ -3,6 +3,8 @@ import json
 import os
 import random
 from web_service import deck,cards
+from wsgiref.simple_server import make_server
+from urllib.parse import parse_qs
 # https://www.toptal.com/python/pythons-wsgi-server-application-interface
 def deal_cards(environ, start_response):
     global deck
@@ -16,6 +18,32 @@ def deal_cards(environ, start_response):
     return [json.dumps(json_cards, indent=2).encode('utf-8')]
 
 
-from wsgiref.simple_server import make_server
-httpd = make_server('', 8080, deal_cards)
-httpd.serve_forever()
+class JSON_Filter:
+    def __init__(self, json_app):
+        self.json_app = json_app
+    def __call__(self, environ, start_response):
+        if 'HTTP_ACCEPT' in environ:
+            if 'json' in environ['HTTP_ACCEPT']:
+                environ['$format'] = 'json'
+                return self.json_app(environ, start_response)
+        decoded_query = parse_qs(environ['QUERY_STRING'])
+        if '$format' in decoded_query:
+            if decoded_query['$format'][0].lower() == 'json':
+                environ['$format'] = 'json'
+                return self.json_app(environ, start_response)
+        status = "{status.value} " \
+                 "{status.phrase}".format(status=HTTPStatus.BAD_REQUEST)
+        headers = [('Content-Type', 'text/plain;charset=utf-8')]
+        start_response(status, headers)
+        return ["Request doesn't include ? $format=json or Accept header".encode('utf-8')]
+
+# httpd = make_server('', 8080, deal_cards)
+# httpd.serve_forever()
+
+json_wrapper = JSON_Filter(deal_cards)
+httpd = make_server('', 8080, json_wrapper)
+print('DONE')
+
+# with make_server('', 8000, json_wrapper) as httpd:
+#     print("Serving on port 8000...")
+#     httpd.serve_forever()
